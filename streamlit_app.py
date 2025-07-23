@@ -679,3 +679,186 @@ else:
                 col4.metric("Passo Medio", format_pace(data.get('passo_medio_min_km', 0)))
                 
                 # Tabs per visualizzazioni dettagliate
+                tab1_detail, tab2_detail = st.tabs(["📊 Dati Processati", "🔍 JSON Originale"])
+                
+                with tab1_detail:
+                    st.write("**Dati Processati (per analisi)**")
+                    processed_df = pd.DataFrame([data]).T
+                    processed_df.columns = ['Valore']
+                    processed_df.index.name = 'Parametro'
+                    
+                    # Formatta alcuni valori per migliore leggibilità
+                    formatted_data = {}
+                    for key, value in data.items():
+                        if 'durata' in key.lower() and isinstance(value, (int, float)):
+                            if 'minuti' in key.lower():
+                                formatted_data[key] = format_duration(value * 60)
+                            else:
+                                formatted_data[key] = format_duration(value)
+                        elif 'passo' in key.lower() and isinstance(value, (int, float)):
+                            formatted_data[key] = format_pace(value)
+                        else:
+                            formatted_data[key] = value
+                    
+                    formatted_df = pd.DataFrame([formatted_data]).T
+                    formatted_df.columns = ['Valore Formattato']
+                    formatted_df.index.name = 'Parametro'
+                    
+                    # Combina dati raw e formattati
+                    combined_df = pd.concat([processed_df, formatted_df], axis=1)
+                    st.dataframe(combined_df, use_container_width=True)
+                
+                with tab2_detail:
+                    st.write("**Dati Originali (JSON)**")
+                    st.json(session_info['raw_data'])
+                
+                # Opzione per scaricare i dati
+                st.subheader("💾 Esporta Dati")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    if st.button("📄 Scarica CSV Processati"):
+                        csv_data = pd.DataFrame([data])
+                        csv_buffer = io.StringIO()
+                        csv_data.to_csv(csv_buffer, index=False)
+                        
+                        st.download_button(
+                            label="⬇️ Download CSV",
+                            data=csv_buffer.getvalue(),
+                            file_name=f"training_data_{selected_session}.csv",
+                            mime="text/csv"
+                        )
+                
+                with col2:
+                    if st.button("📄 Scarica JSON Originale"):
+                        json_str = json.dumps(session_info['raw_data'], indent=2)
+                        st.download_button(
+                            label="⬇️ Download JSON",
+                            data=json_str,
+                            file_name=f"training_raw_{selected_session}.json",
+                            mime="application/json"
+                        )
+    
+    with tab5:
+        st.subheader("🏃 Riepilogo Tutte le Sessioni")
+        
+        if st.session_state.training_data:
+            # Crea tabella riassuntiva di tutte le sessioni
+            summary_data = []
+            for date, session_info in st.session_state.training_data.items():
+                data = session_info['data']
+                summary_row = {
+                    'Data': date,
+                    'Sport': data.get('sport', 'N/A'),
+                    'Distanza (km)': round(data.get('distanza_km', 0), 2),
+                    'Durata (min)': round(data.get('durata_minuti', 0), 1),
+                    'Velocità Media (km/h)': round(data.get('velocita_avg_kmh', 0), 2),
+                    'FC Media (bpm)': round(data.get('fc_avg', 0)),
+                    'FC Max (bpm)': round(data.get('fc_max', 0)),
+                    'Calorie': round(data.get('calorie', 0)),
+                    'Dislivello (m)': round(data.get('ascent', 0)),
+                    'Passo Medio': format_pace(data.get('passo_medio_min_km'))
+                }
+                summary_data.append(summary_row)
+            
+            summary_df = pd.DataFrame(summary_data)
+            summary_df = summary_df.sort_values('Data', ascending=False)
+            
+            # Mostra statistiche generali
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                total_sessions = len(summary_df)
+                total_distance = summary_df['Distanza (km)'].sum()
+                col1.metric("Sessioni Totali", total_sessions)
+                col1.metric("Distanza Totale", f"{total_distance:.1f} km")
+            
+            with col2:
+                total_time = summary_df['Durata (min)'].sum()
+                avg_duration = summary_df['Durata (min)'].mean()
+                col2.metric("Tempo Totale", format_duration(total_time * 60))
+                col2.metric("Durata Media", f"{avg_duration:.1f} min")
+            
+            with col3:
+                avg_speed = summary_df['Velocità Media (km/h)'].mean()
+                max_speed = summary_df['Velocità Media (km/h)'].max()
+                col3.metric("Velocità Media", f"{avg_speed:.2f} km/h")
+                col3.metric("Velocità Max", f"{max_speed:.2f} km/h")
+            
+            with col4:
+                total_calories = summary_df['Calorie'].sum()
+                avg_calories = summary_df['Calorie'].mean()
+                col4.metric("Calorie Totali", f"{total_calories:.0f} kcal")
+                col4.metric("Calorie Medie", f"{avg_calories:.0f} kcal")
+            
+            # Tabella riassuntiva
+            st.subheader("📋 Tabella Riassuntiva")
+            st.dataframe(summary_df, use_container_width=True)
+            
+            # Grafici di tendenza nel tempo
+            st.subheader("📈 Tendenze nel Tempo")
+            
+            # Selettore per il parametro da visualizzare
+            trend_param = st.selectbox(
+                "Parametro per analisi tendenza",
+                ['Distanza (km)', 'Durata (min)', 'Velocità Media (km/h)', 'FC Media (bpm)', 'Calorie'],
+                key="trend_selector"
+            )
+            
+            if len(summary_df) > 1:
+                # Grafico temporale
+                fig_trend = px.line(
+                    summary_df.sort_values('Data'), 
+                    x='Data', 
+                    y=trend_param,
+                    title=f"Tendenza {trend_param} nel Tempo",
+                    markers=True
+                )
+                fig_trend.update_traces(line=dict(width=3), marker=dict(size=8))
+                fig_trend.update_layout(height=400)
+                st.plotly_chart(fig_trend, use_container_width=True)
+                
+                # Calcola trend
+                numeric_values = pd.to_numeric(summary_df[trend_param], errors='coerce')
+                if len(numeric_values.dropna()) > 1:
+                    trend_slope = np.polyfit(range(len(numeric_values.dropna())), numeric_values.dropna(), 1)[0]
+                    trend_direction = "📈 In miglioramento" if trend_slope > 0 else "📉 In calo" if trend_slope < 0 else "➡️ Stabile"
+                    st.info(f"**Tendenza {trend_param}**: {trend_direction} (pendenza: {trend_slope:.3f})")
+            
+            # Distribuzione per sport
+            if 'Sport' in summary_df.columns:
+                st.subheader("🏃 Distribuzione per Sport")
+                sport_counts = summary_df['Sport'].value_counts()
+                
+                if len(sport_counts) > 1:
+                    fig_sports = px.pie(
+                        values=sport_counts.values,
+                        names=sport_counts.index,
+                        title="Distribuzione Sessioni per Sport"
+                    )
+                    st.plotly_chart(fig_sports, use_container_width=True)
+                else:
+                    st.info(f"Tutte le sessioni sono di tipo: {sport_counts.index[0]}")
+            
+            # Esporta tutti i dati
+            st.subheader("💾 Esporta Tutti i Dati")
+            if st.button("📊 Scarica Riepilogo Completo CSV"):
+                csv_buffer = io.StringIO()
+                summary_df.to_csv(csv_buffer, index=False)
+                st.download_button(
+                    label="⬇️ Download Riepilogo CSV",
+                    data=csv_buffer.getvalue(),
+                    file_name=f"training_summary_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv"
+                )
+
+# Footer con informazioni
+st.markdown("---")
+st.markdown(f"""
+<div style="text-align: center; color: #666;">
+    <p>🏃‍♂️ <strong>Analisi Dati Allenamento</strong> - Monitora i tuoi progressi sportivi</p>
+    <p><small>Sessioni caricate: {len(st.session_state.training_data)} | 
+    Ultima analisi: {datetime.now().strftime('%d/%m/%Y %H:%M')}</small></p>
+    <p><small>Supporta file JSON con struttura 'exercises' array</small></p>
+</div>
+""", unsafe_allow_html=True)
